@@ -1,0 +1,32 @@
+[
+  {
+    "question":"Who does Alice follow down the rabbit-hole?",
+    "expected_chapters":"I",
+    "retrieved_chapters":"I, I",
+    "answer":"Alice follows a White Rabbit down the rabbit‑hole. [Chapter I]  \nEducational information only—not personalized advice."
+  },
+  {
+    "question":"What makes Alice shrink after she enters Wonderland?",
+    "expected_chapters":"I",
+    "retrieved_chapters":"II, I",
+    "answer":"Alice begins to shrink because the fan she is holding causes the rapid decrease in her size; she stops the shrinking by dropping the fan【Chapter II】.  \n\nEducational information only—not personalized advice."
+  },
+  {
+    "question":"What question does the Caterpillar ask Alice?",
+    "expected_chapters":"V",
+    "retrieved_chapters":"V, V",
+    "answer":"The Caterpillar asks Alice, “Why?” [Chapter V]  \n\nEducational information only—not personalized advice."
+  },
+  {
+    "question":"Who is at the Mad Tea-Party with Alice?",
+    "expected_chapters":"VII",
+    "retrieved_chapters":"VII, VII",
+    "answer":"Alice is joined at the Mad Tea‑Party by the March Hare and the Hatter【Chapter VII】.  \n\nEducational information only—not personalized advice."
+  },
+  {
+    "question":"Which character repeatedly orders people to have their heads cut off?",
+    "expected_chapters":"VIII",
+    "retrieved_chapters":"VIII, VIII",
+    "answer":"The character who repeatedly orders people to have their heads cut off is the Queen — she threatens “everybody executed, all round” and notes how “they’re dreadfully fond of beheading people here”【Chapter VIII】【Chapter VIII】.  \n\nEducational information only—not personalized advice."
+  }
+]
