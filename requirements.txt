@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+sentence-transformers
+chromadb
+groq
+pandas
+pydantic
+pytest
+httpx
