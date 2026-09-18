@@ -7,3 +7,4 @@ pandas
 pydantic
 pytest
 httpx
+supabase
