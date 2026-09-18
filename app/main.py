@@ -204,11 +204,18 @@ def chat(request: ChatRequest, http_request: Request):
 
         return ChatResponse(
             request_id=request_id,
+            session_id=session_id,
+            user_message_id=user_message["id"],
+            assistant_message_id=assistant_message["id"],
             answer=result["answer"],
             sources=citations,
             retrieved_chunk_count=len(citations),
             latency_ms=total_latency_ms,
-            status="success"
+            retrieval_latency_ms=result["retrieval_latency_ms"],
+            generation_latency_ms=result["generation_latency_ms"],
+            top_retrieval_distance=result["top_retrieval_distance"],
+            answer_status=result["answer_status"],
+            status="success",
         )
 
     except Exception as error:
