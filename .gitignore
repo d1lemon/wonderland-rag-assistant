@@ -25,3 +25,20 @@ logs/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# Runtime artifacts
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+logs/
+*.log
+chroma_db/
+vector_store/

@@ -3,9 +3,10 @@ import os
 import time
 import uuid
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth import get_current_user_id
 from app.config import APP_NAME, APP_VERSION
 from app.models.schemas import (
     ChatRequest,
@@ -14,58 +15,57 @@ from app.models.schemas import (
     FeedbackResponse,
     SourceCitation,
 )
+from app.services.persistence_service import (
+    create_chat_session,
+    get_user_session,
+    save_chat_message,
+    save_feedback,
+)
 from app.services.rag_service import WonderlandRAGService
 
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 
 logger = logging.getLogger(__name__)
-
-
-def get_allowed_origins():
-    raw_origins = os.getenv(
-        "ALLOWED_ORIGINS",
-        "http://localhost,http://localhost:3000,http://127.0.0.1:3000"
-    )
-
-    return [
-        origin.strip()
-        for origin in raw_origins.split(",")
-        if origin.strip()
-    ]
-
 
 app = FastAPI(
     title=APP_NAME,
     version=APP_VERSION,
     description=(
-        "Citation-grounded RAG API for Alice's Adventures in Wonderland."
-    )
+        "Citation-grounded, authenticated RAG API for "
+        "Alice's Adventures in Wonderland."
+    ),
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_allowed_origins(),
-    allow_credentials=False,
+    allow_origins=[
+        "http://localhost",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-Request-ID"]
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 rag_service = None
 
 
 @app.middleware("http")
-async def request_logging_middleware(request: Request, call_next):
-    request_id = request.headers.get(
-        "X-Request-ID",
-        f"req_{uuid.uuid4().hex[:12]}"
-    )
+async def request_id_logging_middleware(
+    request: Request,
+    call_next,
+):
+    request_id = request.headers.get("X-Request-ID")
+
+    if not request_id:
+        request_id = f"req_{uuid.uuid4().hex[:12]}"
 
     request.state.request_id = request_id
-
     start_time = time.perf_counter()
 
     try:
@@ -76,7 +76,7 @@ async def request_logging_middleware(request: Request, call_next):
             "Unhandled API error | request_id=%s | method=%s | path=%s",
             request_id,
             request.method,
-            request.url.path
+            request.url.path,
         )
         raise
 
@@ -88,12 +88,13 @@ async def request_logging_middleware(request: Request, call_next):
     response.headers["X-Process-Time-Ms"] = str(duration_ms)
 
     logger.info(
-        "API request | request_id=%s | method=%s | path=%s | status=%s | duration_ms=%s",
+        "API request | request_id=%s | method=%s | path=%s | "
+        "status=%s | duration_ms=%s",
         request_id,
         request.method,
         request.url.path,
         response.status_code,
-        duration_ms
+        duration_ms,
     )
 
     return response
@@ -121,7 +122,7 @@ def startup_event():
     logger.info("Loading RAG service.")
 
     rag_service = WonderlandRAGService(
-        groq_api_key=groq_api_key
+        groq_api_key=groq_api_key,
     )
 
     logger.info("RAG service ready.")
@@ -132,7 +133,7 @@ def health_check():
     return {
         "status": "healthy",
         "service": APP_NAME,
-        "version": APP_VERSION
+        "version": APP_VERSION,
     }
 
 
@@ -140,66 +141,107 @@ def health_check():
 def readiness_check():
     if rag_service is None:
         raise HTTPException(
-            status_code=503,
-            detail="RAG service is still loading."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="RAG service is still loading.",
         )
 
     return {
         "status": "ready",
-        "chunks_loaded": rag_service.collection.count()
+        "chunks_loaded": rag_service.collection.count(),
     }
 
 
 @app.post(
     "/api/v1/chat",
-    response_model=ChatResponse
+    response_model=ChatResponse,
 )
-def chat(request: ChatRequest, http_request: Request):
+def chat(
+    request: ChatRequest,
+    http_request: Request,
+    user_id: str = Depends(get_current_user_id),
+):
     if rag_service is None:
         raise HTTPException(
-            status_code=503,
-            detail="RAG service is not ready."
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="RAG service is not ready.",
         )
 
     request_id = http_request.state.request_id
     start_time = time.perf_counter()
 
+    if request.session_id:
+        session = get_user_session(
+            user_id=user_id,
+            session_id=request.session_id,
+        )
+
+        if session is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat session not found.",
+            )
+    else:
+        session = create_chat_session(
+            user_id=user_id,
+            title=request.question[:80],
+        )
+
+    session_id = session["id"]
+
+    user_message = save_chat_message(
+        user_id=user_id,
+        session_id=session_id,
+        role="user",
+        content=request.question,
+        request_id=request_id,
+    )
+
     logger.info(
         "Chat started | request_id=%s | question_length=%s | top_k=%s",
         request_id,
         len(request.question),
-        request.top_k
+        request.top_k,
     )
 
     try:
         result = rag_service.answer_question(
             question=request.question,
-            top_k=request.top_k
+            top_k=request.top_k,
         )
 
-        citations = []
-
-        for chunk in result["retrieved_chunks"]:
-            citations.append(
-                SourceCitation(
-                    chunk_id=chunk["chunk_id"],
-                    chapter_number=chunk["metadata"]["chapter_number"],
-                    chapter_title=chunk["metadata"]["chapter_title"],
-                    source_url=chunk["metadata"]["source_url"],
-                    excerpt=chunk["text"][:300],
-                    retrieval_distance=round(chunk["distance"], 4)
-                )
+        citations = [
+            SourceCitation(
+                chunk_id=chunk["chunk_id"],
+                chapter_number=chunk["metadata"]["chapter_number"],
+                chapter_title=chunk["metadata"]["chapter_title"],
+                source_url=chunk["metadata"]["source_url"],
+                excerpt=chunk["text"][:300],
+                retrieval_distance=round(chunk["distance"], 4),
             )
+            for chunk in result["retrieved_chunks"]
+        ]
 
         total_latency_ms = int(
             (time.perf_counter() - start_time) * 1000
         )
 
+        assistant_message = save_chat_message(
+            user_id=user_id,
+            session_id=session_id,
+            role="assistant",
+            content=result["answer"],
+            request_id=request_id,
+            latency_ms=total_latency_ms,
+        )
+
         logger.info(
-            "Chat completed | request_id=%s | latency_ms=%s | source_count=%s",
+            "Chat completed | request_id=%s | session_id=%s | "
+            "latency_ms=%s | source_count=%s | answer_status=%s",
             request_id,
+            session_id,
             total_latency_ms,
-            len(citations)
+            len(citations),
+            result["answer_status"],
         )
 
         return ChatResponse(
@@ -218,44 +260,37 @@ def chat(request: ChatRequest, http_request: Request):
             status="success",
         )
 
+    except HTTPException:
+        raise
+
     except Exception as error:
         logger.exception(
             "Chat failed | request_id=%s",
-            request_id
+            request_id,
         )
 
         raise HTTPException(
-            status_code=500,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(
                 "The chatbot could not process the request. "
                 f"Request ID: {request_id}"
-            )
+            ),
         ) from error
 
 
 @app.post(
     "/api/v1/feedback",
-    response_model=FeedbackResponse
+    response_model=FeedbackResponse,
 )
 def submit_feedback(
     feedback: FeedbackRequest,
-    http_request: Request
+    user_id: str = Depends(get_current_user_id),
 ):
-    feedback_id = f"feedback_{uuid.uuid4().hex[:12]}"
-    request_id = http_request.state.request_id
-
-    logger.info(
-        "Feedback received | feedback_id=%s | chat_request_id=%s | api_request_id=%s | rating=%s | has_comment=%s",
-        feedback_id,
-        feedback.request_id,
-        request_id,
-        feedback.rating,
-        bool(feedback.comment)
-    )
-
-    return FeedbackResponse(
-        feedback_id=feedback_id,
-        request_id=feedback.request_id,
+    stored_feedback = save_feedback(
+        user_id=user_id,
+        message_id=feedback.message_id,
         rating=feedback.rating,
-        status="recorded"
+        comment=feedback.comment,
     )
+
+    return FeedbackResponse(**stored_feedback)

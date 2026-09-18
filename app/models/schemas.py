@@ -8,17 +8,20 @@ class ChatRequest(BaseModel):
         ...,
         min_length=3,
         max_length=500,
-        description="A question about Alice's Adventures in Wonderland."
+        description="A question about Alice's Adventures in Wonderland.",
     )
     top_k: int = Field(
         default=2,
         ge=1,
         le=4,
-        description="Number of relevant source chunks to retrieve."
+        description="Number of relevant source chunks to retrieve.",
     )
     session_id: Optional[str] = Field(
         default=None,
-        description="Optional future chat-session identifier."
+        description=(
+            "Existing user-owned session UUID. "
+            "A new session is created when omitted."
+        ),
     )
 
 
@@ -33,33 +36,36 @@ class SourceCitation(BaseModel):
 
 class ChatResponse(BaseModel):
     request_id: str
+    session_id: str
+    user_message_id: str
+    assistant_message_id: str
     answer: str
     sources: List[SourceCitation]
     retrieved_chunk_count: int
     latency_ms: int
+    retrieval_latency_ms: int
+    generation_latency_ms: int
+    top_retrieval_distance: float | None
+    answer_status: Literal["grounded", "insufficient_evidence"]
     status: str
 
 
 class FeedbackRequest(BaseModel):
-    request_id: str = Field(
+    message_id: str = Field(
         ...,
-        min_length=5,
-        max_length=100,
-        description="Request ID returned by the chat endpoint."
+        description="UUID of an assistant message in the user's chat history.",
     )
-    rating: Literal["up", "down"] = Field(
-        ...,
-        description="User rating for the chatbot answer."
-    )
+    rating: Literal["up", "down"]
     comment: Optional[str] = Field(
         default=None,
         max_length=1000,
-        description="Optional written feedback."
     )
 
 
 class FeedbackResponse(BaseModel):
-    feedback_id: str
-    request_id: str
+    id: str
+    message_id: str
+    user_id: str
     rating: Literal["up", "down"]
-    status: str
+    comment: Optional[str] = None
+    created_at: str
