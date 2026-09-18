@@ -42,3 +42,5 @@ logs/
 *.log
 chroma_db/
 vector_store/
+# Reproducible evaluation outputs
+artifacts/

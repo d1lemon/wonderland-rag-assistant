@@ -13,6 +13,7 @@ from app.config import (
     EDUCATIONAL_DISCLAIMER,
     EMBEDDING_MODEL_NAME,
     GROQ_MODEL,
+    INJECTION_BLOCKED_TERMS,
     INSUFFICIENT_EVIDENCE_ANSWER,
     MAX_RETRIEVAL_DISTANCE,
 )
@@ -30,7 +31,6 @@ class WonderlandRAGService:
 
         self.chroma_client = chromadb.Client()
         self.collection_name = "wonderland_chunks_api"
-
         self.collection = self._build_collection()
 
     def _build_collection(self):
@@ -106,6 +106,17 @@ class WonderlandRAGService:
         )
 
         return collection
+
+    def is_blocked_input(
+        self,
+        question: str,
+    ) -> bool:
+        normalized_question = question.lower()
+
+        return any(
+            blocked_term in normalized_question
+            for blocked_term in INJECTION_BLOCKED_TERMS
+        )
 
     def retrieve(
         self,
@@ -227,6 +238,28 @@ Source passages:
         top_k: int,
     ) -> Dict:
         total_start_time = time.perf_counter()
+
+        if self.is_blocked_input(question):
+            total_latency_ms = int(
+                (time.perf_counter() - total_start_time) * 1000
+            )
+
+            logger.info(
+                "Blocked input instruction override attempt."
+            )
+
+            return {
+                "answer": (
+                    f"{INSUFFICIENT_EVIDENCE_ANSWER}\n\n"
+                    f"{EDUCATIONAL_DISCLAIMER}"
+                ),
+                "retrieved_chunks": [],
+                "latency_ms": total_latency_ms,
+                "retrieval_latency_ms": 0,
+                "generation_latency_ms": 0,
+                "top_retrieval_distance": None,
+                "answer_status": "insufficient_evidence",
+            }
 
         retrieval_start_time = time.perf_counter()
 
