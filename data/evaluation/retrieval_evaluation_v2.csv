@@ -1,0 +1,8 @@
+question,expected_chapters,retrieved_chapters_top_3,hit_at_3,top_1_chapter,top_1_correct
+Who does Alice follow down the rabbit-hole?,I,"I, I, I",True,I,True
+What makes Alice shrink after she enters Wonderland?,I,"II, V, I",True,II,False
+What question does the Caterpillar ask Alice?,V,"V, V, IV",True,V,True
+Who is at the Mad Tea-Party with Alice?,VII,"VII, VII, VII",True,VII,True
+Which character repeatedly orders people to have their heads cut off?,VIII,"VIII, VIII, VII",True,VIII,True
+Who is accused of stealing the Queen of Hearts' tarts?,XI,"XI, XI, XII",True,XI,True
+What does Alice do when she grows large during the trial?,XII,"V, II, XII",True,V,False
