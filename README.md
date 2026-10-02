@@ -138,7 +138,7 @@ Set these values using your operating system, terminal, or a local `.env` loader
 ```text
 GROQ_API_KEY=your_groq_api_key
 GITHUB_USERNAME=your_github_username
-GROQ_MODEL=groq/compound-mini
+GROQ_MODEL=openai/gpt-oss-20b
 ALLOWED_ORIGINS=http://localhost,http://localhost:3000,http://127.0.0.1:3000
 ```
 
@@ -179,7 +179,7 @@ Run the container:
 docker run --rm -p 8080:8080 \
   -e GROQ_API_KEY="your_groq_api_key" \
   -e GITHUB_USERNAME="your_github_username" \
-  -e GROQ_MODEL="groq/compound-mini" \
+  -e GROQ_MODEL="openai/gpt-oss-20b" \
   -e ALLOWED_ORIGINS="http://localhost:3000" \
   wonderland-rag-api
 ```

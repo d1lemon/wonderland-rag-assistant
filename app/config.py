@@ -16,7 +16,7 @@ CHUNKS_URL = (
 
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
-GROQ_MODEL = os.getenv("GROQ_MODEL", "groq/compound-mini")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 
 MAX_QUESTION_LENGTH = 500
 DEFAULT_TOP_K = 2

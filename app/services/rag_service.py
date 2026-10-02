@@ -218,19 +218,41 @@ Source passages:
             retrieved_chunks,
         )
 
-        response = self.groq_client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-            max_tokens=180,
-            temperature=0.2,
-        )
+        max_attempts = 3
 
-        return response.choices[0].message.content.strip()
+        for attempt in range(1, max_attempts + 1):
+            response = self.groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+                max_tokens=400,
+                temperature=0.2,
+            )
+
+            choice = response.choices[0]
+            content = (choice.message.content or "").strip()
+            finish_reason = choice.finish_reason
+
+            if content and finish_reason != "length":
+                return content
+
+            logger.warning(
+                "Groq generation incomplete | attempt=%s/%s | "
+                "finish_reason=%s | content_empty=%s",
+                attempt,
+                max_attempts,
+                finish_reason,
+                not bool(content),
+            )
+
+        raise RuntimeError(
+            "Unable to generate a complete answer after "
+            f"{max_attempts} attempts."
+        )
 
     def answer_question(
         self,
