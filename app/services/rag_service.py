@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from typing import Dict, List
 
@@ -171,64 +172,80 @@ class WonderlandRAGService:
     ) -> str:
         context_parts = []
 
-        for index, chunk in enumerate(
-            retrieved_chunks,
-            start=1,
-        ):
-            chapter_number = chunk["metadata"][
-                "chapter_number"
-            ]
+        for chunk in retrieved_chunks:
+            chunk_id = chunk["chunk_id"]
+            chapter_number = chunk["metadata"]["chapter_number"]
             chunk_text = chunk["text"][:600]
-
             context_parts.append(
-                f"[Source {index}: Chapter {chapter_number}]\n"
+                f"[Chunk ID: {chunk_id} | Chapter {chapter_number}]\n"
                 f"{chunk_text}"
             )
 
         context = "\n\n".join(context_parts)
 
         return f"""
-You are the Wonderland RAG Assistant.
+    You are the Wonderland RAG Assistant.
 
-Use only the supplied source passages to answer the question.
-Do not use outside knowledge or invent details.
+    Use only the supplied source passages to answer the question.
+    Do not use outside knowledge or invent details.
+    Answer only when the supplied passages clearly support it.
 
-If the passages do not clearly support an answer, respond exactly:
-"{INSUFFICIENT_EVIDENCE_ANSWER}"
+    For every factual claim, cite one or more supporting source chunk IDs
+    using exactly this format: [chunk-id].
+    Use only chunk IDs shown in the supplied source passages.
+    Do not use chapter citations, a citations heading, source labels, or
+    any text inside citation brackets other than a chunk ID.
 
-After each factual claim, cite its chapter as [Chapter X].
+    End every answer with exactly one final line:
+    "{EDUCATIONAL_DISCLAIMER}"
 
-End every answer with exactly:
-"{EDUCATIONAL_DISCLAIMER}"
+    Question:
+    {question}
 
-Question:
-{question}
+    Source passages:
+    {context}
+    """.strip()
 
-Source passages:
-{context}
-""".strip()
+    def validate_grounded_answer(
+        self,
+        answer: str,
+        retrieved_chunks: List[Dict],
+    ) -> bool:
+        if not answer:
+            return False
+
+        if answer.count(EDUCATIONAL_DISCLAIMER) != 1:
+            return False
+
+        if not answer.endswith(EDUCATIONAL_DISCLAIMER):
+            return False
+
+        answer_body = answer.removesuffix(EDUCATIONAL_DISCLAIMER).rstrip()
+        allowed_chunk_ids = {
+            chunk["chunk_id"] for chunk in retrieved_chunks
+        }
+        citation_ids = re.findall(r"\[([^\[\]]+)\]", answer_body)
+
+        if not citation_ids:
+            return False
+
+        return all(
+            citation_id in allowed_chunk_ids
+            for citation_id in citation_ids
+        )
 
     def generate_answer(
         self,
         question: str,
         retrieved_chunks: List[Dict],
     ) -> str:
-        prompt = self.build_prompt(
-            question,
-            retrieved_chunks,
-        )
-
+        prompt = self.build_prompt(question, retrieved_chunks)
         max_attempts = 3
 
         for attempt in range(1, max_attempts + 1):
             response = self.groq_client.chat.completions.create(
                 model=GROQ_MODEL,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    }
-                ],
+                messages=[{"role": "user", "content": prompt}],
                 max_tokens=400,
                 temperature=0.2,
             )
@@ -236,21 +253,26 @@ Source passages:
             choice = response.choices[0]
             content = (choice.message.content or "").strip()
             finish_reason = choice.finish_reason
+            valid_contract = bool(content) and (
+                finish_reason != "length"
+                and self.validate_grounded_answer(content, retrieved_chunks)
+            )
 
-            if content and finish_reason != "length":
+            if valid_contract:
                 return content
 
             logger.warning(
-                "Groq generation incomplete | attempt=%s/%s | "
-                "finish_reason=%s | content_empty=%s",
+                "Groq generation invalid | attempt=%s/%s | "
+                "finish_reason=%s | content_empty=%s | contract_valid=%s",
                 attempt,
                 max_attempts,
                 finish_reason,
                 not bool(content),
+                valid_contract,
             )
 
         raise RuntimeError(
-            "Unable to generate a complete answer after "
+            "Unable to generate a valid grounded answer after "
             f"{max_attempts} attempts."
         )
 
@@ -326,10 +348,22 @@ Source passages:
 
         generation_start_time = time.perf_counter()
 
-        answer = self.generate_answer(
-            question=question,
-            retrieved_chunks=retrieved_chunks,
-        )
+        try:
+            answer = self.generate_answer(
+                question=question,
+                retrieved_chunks=retrieved_chunks,
+            )
+            answer_status = "grounded"
+        except RuntimeError as error:
+            logger.info(
+                "Grounded-answer contract failed | reason=%s",
+                error,
+            )
+            answer = (
+                f"{INSUFFICIENT_EVIDENCE_ANSWER}\n\n"
+                f"{EDUCATIONAL_DISCLAIMER}"
+            )
+            answer_status = "insufficient_evidence"
 
         generation_latency_ms = int(
             (time.perf_counter() - generation_start_time) * 1000
@@ -346,5 +380,5 @@ Source passages:
             "retrieval_latency_ms": retrieval_latency_ms,
             "generation_latency_ms": generation_latency_ms,
             "top_retrieval_distance": top_distance,
-            "answer_status": "grounded",
+            "answer_status": answer_status,
         }

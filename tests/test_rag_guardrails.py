@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.config import (
+    EDUCATIONAL_DISCLAIMER,
     GROQ_MODEL,
     INSUFFICIENT_EVIDENCE_ANSWER,
     MAX_RETRIEVAL_DISTANCE,
@@ -125,10 +126,10 @@ def make_completion(content, finish_reason):
     )
 
 
-def test_generate_answer_returns_complete_response_on_first_attempt():
+def test_generate_answer_returns_valid_grounded_response_on_first_attempt():
     service = make_service_without_initialization()
     service.groq_client = FakeGroqClient(
-        [make_completion("A complete grounded answer.", "stop")]
+        [make_completion(valid_answer(), "stop")]
     )
     chunks = [make_chunk(0.1)]
 
@@ -138,7 +139,7 @@ def test_generate_answer_returns_complete_response_on_first_attempt():
     )
 
     calls = service.groq_client.chat.completions.calls
-    assert answer == "A complete grounded answer."
+    assert answer == valid_answer()
     assert len(calls) == 1
     assert calls[0]["model"] == GROQ_MODEL
     assert calls[0]["max_tokens"] == 400
@@ -157,7 +158,7 @@ def test_generate_answer_retries_empty_content_then_raises():
 
     with pytest.raises(
         RuntimeError,
-        match="Unable to generate a complete answer after 3 attempts",
+        match="Unable to generate a valid grounded answer after 3 attempts",
     ):
         service.generate_answer(
             question="Who does Alice follow?",
@@ -179,11 +180,103 @@ def test_generate_answer_retries_length_truncation_then_raises():
 
     with pytest.raises(
         RuntimeError,
-        match="Unable to generate a complete answer after 3 attempts",
+        match="Unable to generate a valid grounded answer after 3 attempts",
     ):
         service.generate_answer(
             question="Who does Alice follow?",
             retrieved_chunks=[make_chunk(0.1)],
         )
 
+    assert len(service.groq_client.chat.completions.calls) == 3
+
+
+def valid_answer(chunk_id="test-chunk-001"):
+    return (
+        f"Alice follows the White Rabbit. [{chunk_id}]\n\n"
+        f"{EDUCATIONAL_DISCLAIMER}"
+    )
+
+
+def test_validate_grounded_answer_accepts_retrieved_chunk_citation():
+    service = make_service_without_initialization()
+    assert service.validate_grounded_answer(
+        valid_answer(), [make_chunk(0.1)]
+    ) is True
+
+
+def test_validate_grounded_answer_rejects_unretrieved_chunk_citation():
+    service = make_service_without_initialization()
+    assert service.validate_grounded_answer(
+        valid_answer("made-up-chunk"), [make_chunk(0.1)]
+    ) is False
+
+
+def test_validate_grounded_answer_rejects_missing_citation():
+    service = make_service_without_initialization()
+    answer = f"Alice follows the White Rabbit.\n\n{EDUCATIONAL_DISCLAIMER}"
+    assert service.validate_grounded_answer(
+        answer, [make_chunk(0.1)]
+    ) is False
+
+
+def test_validate_grounded_answer_rejects_nonfinal_disclaimer():
+    service = make_service_without_initialization()
+    answer = valid_answer() + "\nExtra text."
+    assert service.validate_grounded_answer(
+        answer, [make_chunk(0.1)]
+    ) is False
+
+
+def test_validate_grounded_answer_rejects_bracketed_non_citation():
+    service = make_service_without_initialization()
+    answer = (
+        "Alice follows the White Rabbit. [test-chunk-001] [Chapter I]\n\n"
+        f"{EDUCATIONAL_DISCLAIMER}"
+    )
+    assert service.validate_grounded_answer(
+        answer, [make_chunk(0.1)]
+    ) is False
+
+
+def test_generate_answer_retries_invalid_citation_then_returns_valid_answer():
+    service = make_service_without_initialization()
+    service.groq_client = FakeGroqClient([
+        make_completion(valid_answer("made-up-chunk"), "stop"),
+        make_completion(valid_answer(), "stop"),
+    ])
+
+    answer = service.generate_answer(
+        question="Who does Alice follow?",
+        retrieved_chunks=[make_chunk(0.1)],
+    )
+
+    assert answer == valid_answer()
+    assert len(service.groq_client.chat.completions.calls) == 2
+
+
+def test_answer_question_returns_insufficient_evidence_after_invalid_generations(
+    monkeypatch,
+):
+    service = make_service_without_initialization()
+    chunk = make_chunk(0.1)
+    service.groq_client = FakeGroqClient([
+        make_completion(valid_answer("made-up-chunk"), "stop")
+        for _ in range(3)
+    ])
+
+    monkeypatch.setattr(
+        service, "retrieve", lambda question, top_k: [chunk]
+    )
+
+    result = service.answer_question(
+        question="Who does Alice follow?",
+        top_k=1,
+    )
+
+    assert result["answer_status"] == "insufficient_evidence"
+    assert result["answer"] == (
+        f"{INSUFFICIENT_EVIDENCE_ANSWER}\n\n"
+        f"{EDUCATIONAL_DISCLAIMER}"
+    )
+    assert result["generation_latency_ms"] >= 0
     assert len(service.groq_client.chat.completions.calls) == 3
