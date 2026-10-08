@@ -42,6 +42,8 @@ EDUCATIONAL_DISCLAIMER = (
 INJECTION_BLOCKED_TERMS = (
     "ignore previous instructions",
     "ignore all previous instructions",
+    "ignore prior instructions",
+    "ignore all prior instructions",
     "ignore the source material",
     "ignore the sources",
     "reveal a secret",

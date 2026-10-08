@@ -119,6 +119,14 @@ class WonderlandRAGService:
             for blocked_term in INJECTION_BLOCKED_TERMS
         )
 
+    def is_context_free_question(self, question: str) -> bool:
+        normalized = re.sub(r"\s+", " ", question.casefold()).strip()
+        normalized = normalized.rstrip("?.!").strip()
+        return normalized in {
+            "what happens next",
+            "why does she do that",
+        }
+
     def retrieve(
         self,
         question: str,
@@ -283,13 +291,16 @@ class WonderlandRAGService:
     ) -> Dict:
         total_start_time = time.perf_counter()
 
-        if self.is_blocked_input(question):
+        if (
+            self.is_blocked_input(question)
+            or self.is_context_free_question(question)
+        ):
             total_latency_ms = int(
                 (time.perf_counter() - total_start_time) * 1000
             )
 
             logger.info(
-                "Blocked input instruction override attempt."
+                "Input declined before retrieval: override or missing context."
             )
 
             return {
