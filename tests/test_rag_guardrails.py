@@ -342,3 +342,20 @@ def test_context_guard_allows_explicit_narrative_position():
     assert service.is_context_free_question(
         "What happens next after Alice sees the White Rabbit?"
     ) is False
+
+
+@pytest.mark.parametrize("prefix_length", [650, 950])
+def test_build_prompt_preserves_complete_source_passages(prefix_length):
+    service = make_service_without_initialization()
+    chunk = make_chunk(0.1)
+    final_sentence = "In another moment down went Alice after it."
+    chunk["text"] = ("x" * prefix_length) + "\n" + final_sentence
+
+    prompt = service.build_prompt(
+        question="Who does Alice follow down the rabbit-hole?",
+        retrieved_chunks=[chunk],
+    )
+
+    assert chunk["text"] in prompt
+    assert final_sentence in prompt
+    assert "[Chunk ID: test-chunk-001 | Chapter I]" in prompt

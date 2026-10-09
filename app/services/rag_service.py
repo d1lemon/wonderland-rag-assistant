@@ -183,7 +183,7 @@ class WonderlandRAGService:
         for chunk in retrieved_chunks:
             chunk_id = chunk["chunk_id"]
             chapter_number = chunk["metadata"]["chapter_number"]
-            chunk_text = chunk["text"][:600]
+            chunk_text = chunk["text"]
             context_parts.append(
                 f"[Chunk ID: {chunk_id} | Chapter {chapter_number}]\n"
                 f"{chunk_text}"
