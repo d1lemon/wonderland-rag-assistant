@@ -17,15 +17,17 @@ def evaluate_row(service, row):
     expected_chapter = str(row["expected_chapter"]).strip()
     expected_status = row["expected_answer_status"]
 
-    if service.is_blocked_input(question):
+    instruction_blocked = service.is_blocked_input(question)
+    context_free = service.is_context_free_question(question)
+    early_refused = instruction_blocked or context_free
+
+    if early_refused:
         retrieved_chunks = []
         retrieved_chapters = []
         top_distance = None
         retrieval_latency_ms = 0
         observed_status = "insufficient_evidence"
-        input_blocked = True
     else:
-        input_blocked = False
         start_time = time.perf_counter()
 
         retrieved_chunks = service.retrieve(
@@ -64,11 +66,16 @@ def evaluate_row(service, row):
         "question": question,
         "expected_chapter": expected_chapter or None,
         "retrieved_chapters": ", ".join(retrieved_chapters),
+        "retrieved_chunk_ids": ", ".join(
+            chunk["chunk_id"] for chunk in retrieved_chunks
+        ),
         "hit_at_k": hit_at_k,
         "expected_answer_status": expected_status,
-        "observed_answer_status": observed_status,
+        "retrieval_gate_status": observed_status,
         "status_match": observed_status == expected_status,
-        "input_blocked": input_blocked,
+        "input_blocked": instruction_blocked,
+        "context_free_refused": context_free,
+        "early_refused": early_refused,
         "top_retrieval_distance": top_distance,
         "retrieval_latency_ms": retrieval_latency_ms,
     }
@@ -122,14 +129,22 @@ def main():
     retrieval_hit_rate = grounded_results["hit_at_k"].mean()
     status_accuracy = results_df["status_match"].mean()
 
-    print("Evaluation complete.")
+    print("Retrieval/input-gate evaluation complete.")
+    print(
+        "No answer generation, citation validation, claim-support review, "
+        "or authenticated API evaluation was performed."
+    )
+    print(
+        "retrieval_gate_status is a gate-derived label, "
+        "not an observed API answer status."
+    )
     print(f"Output file: {output_path}")
     print(
-        f"Grounded retrieval Hit Rate@{DEFAULT_TOP_K}: "
+        f"Expected-chapter Hit Rate@{DEFAULT_TOP_K}: "
         f"{retrieval_hit_rate:.0%}"
     )
     print(
-        f"Guardrail status accuracy: "
+        f"Input/retrieval gate label agreement: "
         f"{status_accuracy:.0%}"
     )
     print()
@@ -140,11 +155,14 @@ def main():
                 "category",
                 "expected_chapter",
                 "retrieved_chapters",
+                "retrieved_chunk_ids",
                 "hit_at_k",
                 "expected_answer_status",
-                "observed_answer_status",
+                "retrieval_gate_status",
                 "status_match",
                 "input_blocked",
+                "context_free_refused",
+                "early_refused",
                 "top_retrieval_distance",
                 "retrieval_latency_ms",
             ]
